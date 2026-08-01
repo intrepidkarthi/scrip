@@ -272,6 +272,21 @@ Alef Markets, August 2026.
 | 6.2 Real estate profile | Not implemented |
 | 6.3 Gold profile | Not implemented |
 
+### The Go module
+
+This repository also carries a reference implementation of the invariants themselves,
+independent of Alef: `authorization.go`, `settlement.go`, `profile.go`, `store.go`. All
+three profiles in §6 are implemented there, including the two requirements Alef cannot
+currently satisfy — real estate's separate asset jurisdiction, and gold's reserve ceiling
+checked on every mint.
+
+Storage sits behind the `Store` interface, so the invariants are no longer bound to one
+database. The package checks every rule and expects the `Store` to enforce them too;
+`memstore.go` is the reference for what that means, most importantly that drawdown and
+mint commit atomically.
+
+This does not close §5. Anchoring remains unimplemented and nothing is conformant.
+
 ### What extraction requires
 
 The reference implementation is Alef-shaped in ways a protocol must not be:

@@ -145,11 +145,50 @@ README.md        — this file: the problem, how Scrip differs, asset classes
 SPEC.md          — the normative specification
 CONTRIBUTING.md  — how to propose changes; how to write a new asset profile
 LICENSE          — Apache 2.0
+
+doc.go           — package overview
+authorization.go — the authority chain: parties, corporate acts, drawdown
+settlement.go    — the DvP state machine, including the indeterminate state
+profile.go       — asset class profiles: equity, real estate, gold
+store.go         — the persistence contract, and Issue()
+errors.go        — one error per invariant
+memstore.go      — in-memory reference Store, unexported by design
+*_test.go        — the invariants, as tests
 ```
 
-The Go reference module is not yet extracted; the specification is the deliverable today.
-See [SPEC.md § Reference implementation](./SPEC.md#reference-implementation) for what
-extraction requires.
+## The Go module
+
+```
+go get github.com/intrepidkarthi/scrip
+```
+
+Zero dependencies. A protocol that drags a dependency tree into every adopter's build is
+one fewer reason to adopt it, and each dependency would impose a decision about how to
+represent money, identity or time.
+
+Quantities are integer units. What one unit *means* — a share, a gram of 99.99% fine gold,
+a fraction of an SPV — is declared by the instrument's profile. This keeps decimal
+rounding out of the protocol entirely, which matters because the ledger requirement in
+§4.1 exists precisely to stop rounding drift.
+
+```go
+auth, err := scrip.NewAuthorization(id, instrument,
+    scrip.CorporateAct{Type: scrip.BoardResolution, Reference: "BR-2026-04", Date: resolved},
+    1_000_000, issuerSignatory, attestations, now)
+
+err = auth.CounterSign(registerKeeperSignatory, now)  // must be a different entity
+
+mint, err := scrip.Issue(ctx, store, auth.ID, mintID, holderID, 250_000, now)
+```
+
+Every invariant is checked in the package *and* expected to be enforced by your [Store].
+That duplication is the design: application checks give callers a diagnosable error,
+storage checks give the system a guarantee under concurrency, and neither substitutes for
+the other. `memstore.go` shows what a conforming Store must do — most importantly that
+drawdown and mint commit together.
+
+The tests are the specification made executable, and they are almost all refusals: the
+value of this package is not what it lets you do.
 
 ## Contributing
 
