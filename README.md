@@ -108,9 +108,10 @@ See [SPEC.md § Asset class profiles](./SPEC.md#asset-class-profiles).
 
 ## Conformance
 
-**Nothing may currently be described as Scrip-conformant, including the reference
-implementation.** The specification is complete enough to build against; the conformance
-suite is not written.
+**No deployed system may currently be described as Scrip-conformant.** The Go module
+implements and tests every property including anchoring; what is missing is a venue
+running it against a real chain, and a conformance suite that an independent
+implementation can be run through.
 
 What exists today in the reference implementation (Alef Markets):
 
@@ -121,22 +122,39 @@ What exists today in the reference implementation (Alef Markets):
 | 3 · Atomic supply drawdown | Implemented, enforced by trigger |
 | 4 · The chain is the register | Implemented |
 | 5 · DvP with unwind | Implemented, exactly-once by unique index |
-| **On-chain anchoring of authorisations** | **Not implemented** — see below |
+| **On-chain anchoring of authorisations** | Implemented in the Go module; **not deployed by any venue** — see below |
 
-### The gap that matters most
+### Anchoring — what a holder can now check
 
-Scrip's central claim is that issuance authority is *independently verifiable*. Today the
-authorisation chain lives in the venue's database. A holder cannot check it without asking
-the venue — which is the trust assumption the protocol exists to remove.
+The Go module implements §5. Before any mint, the venue publishes a salted SHA-256
+commitment over the authorisation record: the corporate act, the quantity, both
+signatories and their entities, and every attestation reference. `Issue` refuses to mint
+against an authorisation that has not been anchored, so the guarantee covers every unit
+rather than the ones a venue expects questions about.
 
-Closing it requires anchoring each authorisation on-chain: at minimum a hash commitment of
-the authorisation record and both signatures, written before the mint that draws on it.
-That is specified in [SPEC.md § Anchoring](./SPEC.md#anchoring) and is the first
-requirement for a v1.0 that means what it says.
+A holder, auditor or regulator obtains the record and salt from the venue, reads the
+digest from the chain, and calls `Verify`. If the venue altered anything after committing
+— the quantity, which board resolution, who signed, which valuation backed it — the
+digests diverge and `Verify` says so.
 
-Until then, Scrip is best described as *a specification of the controls, with a reference
-implementation that enforces them locally*. That is useful and it is honest. It is not yet
-a trust-minimised protocol.
+It is a commitment, not a disclosure. A board resolution names parties, prices and
+intentions that are nobody else's business; publishing a hash lets someone who has been
+shown the record prove it is the one committed to, without the venue publishing it to the
+world. The salt matters for the same reason: without it the preimage is a handful of
+low-entropy fields — a round quantity, a date, a sequential identifier — and anyone
+holding the digest could recover them by enumeration.
+
+### What is still missing
+
+**No venue has deployed this.** The module provides `Anchorer` as a one-method interface
+and the protocol does not care which chain satisfies it, but a specification and a
+reference implementation are not a running system. Alef, the implementation Scrip was
+extracted from, does not yet anchor.
+
+So: the controls are implemented and tested, and the verifiability claim is now
+*implementable* rather than aspirational. It is not yet *demonstrated*, and no
+implementation should be described as conformant until its anchors are on a chain someone
+else can read.
 
 ## Repository layout
 

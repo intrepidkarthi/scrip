@@ -68,6 +68,11 @@ func TestGoldIssuanceCannotExceedAttestedReserves(t *testing.T) {
 
 	ctx := context.Background()
 
+	// §5 — nothing mints until the commitment is published.
+	if _, err := AnchorAuthorization(ctx, st, &fakeAnchorer{}, a.ID, now); err != nil {
+		t.Fatalf("anchoring refused: %v", err)
+	}
+
 	// Up to the attested reserve is fine.
 	if _, err := Issue(ctx, st, a.ID, "m1", "holder", 1_000, now); err != nil {
 		t.Fatalf("issuing exactly the attested reserve was refused: %v", err)

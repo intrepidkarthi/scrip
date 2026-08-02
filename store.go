@@ -2,6 +2,7 @@ package scrip
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -59,6 +60,69 @@ type Store interface {
 
 	// Settlement loads one by ID.
 	Settlement(ctx context.Context, id string) (*Settlement, error)
+
+	// SaveAnchor records that a commitment was published.
+	//
+	// MUST refuse a second anchor for the same authorisation: two commitments for one
+	// authorisation leaves no rule for which is authoritative, and a verifier checking
+	// the wrong one gets a mismatch that looks like tampering.
+	SaveAnchor(ctx context.Context, a Anchor, salt [SaltLen]byte) error
+
+	// Anchor returns the published commitment for an authorisation, or ErrNotAnchored.
+	Anchor(ctx context.Context, authorizationID string) (Anchor, error)
+}
+
+// AnchorAuthorization commits to an authorisation and publishes it, in that order.
+//
+// Called after counter-signature and before any mint. The ordering is the whole point
+// of §5: a commitment published after minting proves nothing, because by then the venue
+// has already had the opportunity to decide what it wished it had authorised.
+//
+// The salt is handed to the Store alongside the anchor. It MUST be retained — the
+// digest stands forever, and without the salt nobody can ever demonstrate what it
+// commits to.
+func AnchorAuthorization(
+	ctx context.Context,
+	s Store,
+	an Anchorer,
+	authorizationID string,
+	now time.Time,
+) (Anchor, error) {
+	auth, err := s.Authorization(ctx, authorizationID)
+	if err != nil {
+		return Anchor{}, err
+	}
+
+	if _, err := s.Anchor(ctx, authorizationID); err == nil {
+		return Anchor{}, ErrAlreadyAnchored
+	} else if !errors.Is(err, ErrNotAnchored) && !errors.Is(err, ErrNotFound) {
+		return Anchor{}, err
+	}
+
+	c, err := Commit(auth)
+	if err != nil {
+		return Anchor{}, err
+	}
+
+	// Publish before recording. If publication succeeds and the write below fails, the
+	// commitment exists on-chain with no local record — recoverable by reading the
+	// chain. The reverse would be a local record pointing at a commitment that was
+	// never published, which reads as anchored and is not.
+	ref, err := an.Publish(ctx, c.Digest)
+	if err != nil {
+		return Anchor{}, err
+	}
+
+	anchor := Anchor{
+		AuthorizationID: authorizationID,
+		Digest:          c.Digest,
+		Reference:       ref,
+		At:              now,
+	}
+	if err := s.SaveAnchor(ctx, anchor, c.Salt); err != nil {
+		return Anchor{}, err
+	}
+	return anchor, nil
 }
 
 // Mint is a record of units created against an authorisation.
@@ -108,6 +172,18 @@ func Issue(
 	// Property 2 — nothing is minted against an unconfirmed authorisation.
 	if !auth.IsCounterSigned() {
 		return nil, ErrNotCounterSigned
+	}
+
+	// §5 — nothing is minted against an authorisation whose commitment has not been
+	// published. Without this the anchoring requirement is advisory: a venue could
+	// anchor the authorisations it expects to be asked about and mint freely against
+	// the rest, and an authority chain that is verifiable for some units is not
+	// verifiable.
+	if _, err := s.Anchor(ctx, authorizationID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, ErrNotAnchored
+		}
+		return nil, err
 	}
 
 	// Property 3 — checked here for a diagnosable error, and again by the Store for the

@@ -145,7 +145,7 @@ a buffer nobody drains is the same as no alert.
 
 ## 5 · Anchoring
 
-**Normative for v1.0. Not implemented in the reference implementation.**
+**Normative. Implemented in the Go module; not yet deployed against a live chain.**
 
 Scrip's central claim is that issuance authority is verifiable independently of the venue.
 An authorisation chain held only in the venue's database does not satisfy that claim: a
@@ -163,8 +163,19 @@ The commitment MUST be verifiable against the authorisation record disclosed to 
 auditor or regulator. It SHOULD NOT publish the act's contents, which are frequently
 confidential — a hash commitment satisfies verifiability without disclosure.
 
-Until anchoring is implemented, an implementation MAY be described as *enforcing the Scrip
-controls locally*. It MUST NOT be described as Scrip-conformant.
+The commitment MUST be salted with at least 128 bits of entropy. The preimage is
+otherwise a small set of low-entropy fields — a quantity that is usually round, a date, an
+identifier that may be sequential — and an unsalted digest discloses them to anyone
+willing to enumerate.
+
+The encoding MUST be canonical and MUST length-prefix every variable-length field.
+Without prefixing, ("AB","C") and ("A","BC") encode identically, so two different
+authorisations can share a digest — and the fields in question are chosen by the party
+being constrained.
+
+An implementation that has not published its anchors to a chain a third party can read
+MAY be described as *enforcing the Scrip controls locally*. It MUST NOT be described as
+Scrip-conformant.
 
 ## 6 · Asset class profiles
 
@@ -268,7 +279,7 @@ Alef Markets, August 2026.
 | 4.2 Privileged ops | `migrations/031_privileged_operations.sql` |
 | 4.4 Issuer gate | `migrations/036_issuer_verification_gate.sql` |
 | 4.5 Surveillance | `migrations/035_surveillance_alerts.sql` |
-| 5 Anchoring | **Not implemented** |
+| 5 Anchoring | `anchor.go` — not yet wired into Alef |
 | 6.2 Real estate profile | Not implemented |
 | 6.3 Gold profile | Not implemented |
 

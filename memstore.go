@@ -25,6 +25,11 @@ type memStore struct {
 	settlements map[string]*Settlement
 	// issued tracks outstanding units per instrument — mints less burns.
 	issued map[string]uint64
+	// anchors and salts are kept apart because they have different exposure: the anchor
+	// is public by construction, the salt is disclosed only to a party entitled to
+	// verify. A real implementation should hold the salt wherever it holds secrets.
+	anchors map[string]Anchor
+	salts   map[string][SaltLen]byte
 }
 
 func newMemStore() *memStore {
@@ -34,6 +39,8 @@ func newMemStore() *memStore {
 		mints:       map[string]Mint{},
 		settlements: map[string]*Settlement{},
 		issued:      map[string]uint64{},
+		anchors:     map[string]Anchor{},
+		salts:       map[string][SaltLen]byte{},
 	}
 }
 
@@ -150,4 +157,35 @@ func (m *memStore) Settlement(_ context.Context, id string) (*Settlement, error)
 		return nil, ErrNotFound
 	}
 	return s, nil
+}
+
+func (m *memStore) SaveAnchor(_ context.Context, a Anchor, salt [SaltLen]byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// One commitment per authorisation. A second would leave a verifier no way to know
+	// which digest is authoritative.
+	if _, exists := m.anchors[a.AuthorizationID]; exists {
+		return ErrAlreadyAnchored
+	}
+	m.anchors[a.AuthorizationID] = a
+	m.salts[a.AuthorizationID] = salt
+	return nil
+}
+
+func (m *memStore) Anchor(_ context.Context, authorizationID string) (Anchor, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a, ok := m.anchors[authorizationID]
+	if !ok {
+		return Anchor{}, ErrNotAnchored
+	}
+	return a, nil
+}
+
+// salt returns the retained salt, for tests and for disclosure to a verifier.
+func (m *memStore) salt(authorizationID string) ([SaltLen]byte, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.salts[authorizationID]
+	return s, ok
 }
