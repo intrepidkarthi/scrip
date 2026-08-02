@@ -144,6 +144,21 @@ world. The salt matters for the same reason: without it the preimage is a handfu
 low-entropy fields — a round quantity, a date, a sequential identifier — and anyone
 holding the digest could recover them by enumeration.
 
+### Why this is a protocol and not just a library
+
+The commitment encoding is specified normatively in [SPEC.md §5.1](./SPEC.md#51--commitment-encoding-normative)
+— byte layout, field order, big-endian widths, mandatory length prefixing — with a
+[test vector](./SPEC.md#52--test-vector) any implementation can check itself against.
+
+That is the difference. Two independent implementations, in different languages, written
+by parties who do not trust each other, can produce and verify the same commitment. A
+verifier written by a regulator against the spec alone will agree with a venue's Go
+implementation, or the venue has a problem. Without a specified encoding there is no
+interoperation and the word "protocol" would be doing no work.
+
+The Go module pins the vector in a test, so the encoding cannot drift from the
+specification silently.
+
 ### What is still missing
 
 **No venue has deployed this.** The module provides `Anchorer` as a one-method interface

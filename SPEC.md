@@ -177,6 +177,91 @@ An implementation that has not published its anchors to a chain a third party ca
 MAY be described as *enforcing the Scrip controls locally*. It MUST NOT be described as
 Scrip-conformant.
 
+### 5.1 · Commitment encoding (normative)
+
+This section exists so that an implementation in any language produces byte-identical
+digests. Without it the encoding is defined by whichever implementation you happen to
+have, and a verifier written independently of the venue — the only kind whose
+verification means anything — cannot be written at all.
+
+**Digest.** SHA-256 over the canonical encoding below.
+
+**Canonical encoding.** The concatenation, in exactly this order, of:
+
+| # | Field | Encoding |
+|---|---|---|
+| 1 | Domain separator | `field("scrip.authorization.v1")` |
+| 2 | Salt | `field(salt)` — 32 bytes |
+| 3 | Authorisation ID | `field(id)` |
+| 4 | Instrument ID | `field(instrument_id)` |
+| 5 | Act type | `field(act.type)` |
+| 6 | Act reference | `field(act.reference)` |
+| 7 | Act date | `uint64(unix seconds, UTC)` |
+| 8 | Quantity | `uint64` |
+| 9 | Issuer entity | `field(authorized_by.entity_id)` |
+| 10 | Issuer signatory | `field(authorized_by.id)` |
+| 11 | Keeper entity | `field(counter_signed_by.entity_id)` |
+| 12 | Keeper signatory | `field(counter_signed_by.id)` |
+| 13 | Attestation count | `uint64` |
+| 14 | Each attestation, in recorded order | `field(kind)`, `field(reference)`, `uint64(as_of unix, UTC)`, `uint64(quantity)` |
+
+Where:
+
+- `uint64(n)` is 8 bytes, **big-endian**.
+- `field(b)` is `uint64(len(b))` followed by the bytes of `b`. Strings are UTF-8.
+
+**Length prefixing is mandatory.** Without it `("AB","C")` and `("A","BC")` encode
+identically, so two different authorisations can share a digest. The fields concerned —
+act references, party identifiers — are chosen by the party the commitment constrains, so
+this is a forgery and not a curiosity.
+
+**Field order is frozen.** Reordering invalidates every commitment ever published. A
+future revision MUST change the domain separator rather than the order.
+
+**Salt.** At least 128 bits from a cryptographically secure source; 256 bits is
+RECOMMENDED and is what the reference implementation uses. A fresh salt per commitment.
+The preimage is otherwise a small set of low-entropy fields — a quantity that is usually
+round, a date, an identifier that may be sequential — and an unsalted digest discloses
+them to anyone willing to enumerate.
+
+**What is committed and what is not.** The act's *identity* is committed (type,
+reference, date); its *contents* are not. Attestation references are committed; the
+documents are not. This is what makes anchoring usable for issuers whose board
+resolutions are confidential.
+
+### 5.2 · Test vector
+
+An implementation is encoding correctly if it reproduces this digest.
+
+```
+salt          = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+id            = "auth-0001"
+instrument_id = "inst-0001"
+act.type      = "board_resolution"
+act.reference = "BR-2026-04"
+act.date      = 1776211200          # 2026-04-15T00:00:00Z
+quantity      = 1000000
+issuer        = entity "entity-issuer", signatory "u-cfo"
+keeper        = entity "entity-venue",  signatory "u-registrar"
+attestations  = 1
+  [0] kind "audited_financials", reference "AUD-2025",
+      as_of 1769817600             # 2026-01-31T00:00:00Z
+      quantity 0
+
+SHA-256 = d0388a3f447f0dee4ac782aa6c49b5a60fc9198d8d32db461ae79e61f4c4c28c
+```
+
+### 5.3 · What a verifier does
+
+1. Obtain the authorisation record and its salt from the venue.
+2. Read the digest from the register, and note which address published it.
+3. Recompute per §5.1 and compare.
+
+A match establishes that the venue committed to *this* record before minting against it.
+It does not establish that the record is true — that the board actually resolved what it
+says — which is what the attestations and the counter-signature are for. Anchoring proves
+the venue has not changed its story.
+
 ## 6 · Asset class profiles
 
 The five properties are asset-class agnostic. What differs is carried in a **profile**,

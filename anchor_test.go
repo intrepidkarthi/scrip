@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"testing"
+	"time"
 )
 
 // §5 is the requirement that turns the authority chain from something the venue asserts
@@ -223,5 +224,71 @@ func TestFieldBoundariesCannotBeShifted(t *testing.T) {
 	var salt [SaltLen]byte
 	if digest(base, salt) == digest(&shifted, salt) {
 		t.Fatal("two different authorisations share a digest — field boundaries are not committed to")
+	}
+}
+
+// The test vector published in SPEC.md §5.2.
+//
+// This is the load-bearing test for calling Scrip a protocol rather than a library. An
+// implementation in another language is conformant on this point if it reproduces this
+// digest; if this test ever fails, the encoding has changed and every commitment ever
+// published under the old one has been invalidated.
+//
+// Changing it requires changing the domain separator in digest() and re-publishing the
+// vector, not adjusting the constant below.
+func TestSpecTestVector(t *testing.T) {
+	var salt [SaltLen]byte
+	for i := range salt {
+		salt[i] = byte(i)
+	}
+
+	a := &Authorization{
+		ID:           "auth-0001",
+		InstrumentID: "inst-0001",
+		Act: CorporateAct{
+			Type:      BoardResolution,
+			Reference: "BR-2026-04",
+			Date:      time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC),
+		},
+		Quantity:        1_000_000,
+		AuthorizedBy:    Party{ID: "u-cfo", Kind: Issuer, EntityID: "entity-issuer"},
+		CounterSignedBy: &Party{ID: "u-registrar", Kind: RegisterKeeper, EntityID: "entity-venue"},
+		Attestations: []Attestation{{
+			Kind:      AuditedFinancials,
+			Reference: "AUD-2025",
+			AsOf:      time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+		}},
+	}
+
+	const want = "d0388a3f447f0dee4ac782aa6c49b5a60fc9198d8d32db461ae79e61f4c4c28c"
+	got := digest(a, salt)
+	if hex.EncodeToString(got[:]) != want {
+		t.Fatalf("encoding has changed — every published commitment is now unverifiable.\n got  %s\n want %s",
+			hex.EncodeToString(got[:]), want)
+	}
+}
+
+// Dates are committed in UTC. A venue in Dubai and a verifier in London must compute the
+// same digest from the same record, and a timezone-local encoding would silently give
+// them different ones.
+func TestEncodingIsTimezoneIndependent(t *testing.T) {
+	var salt [SaltLen]byte
+	gulf := time.FixedZone("GST", 4*3600)
+
+	utc := &Authorization{
+		ID: "a", InstrumentID: "i",
+		Act:             CorporateAct{Type: BoardResolution, Reference: "R", Date: time.Date(2026, 4, 15, 8, 0, 0, 0, time.UTC)},
+		Quantity:        1,
+		AuthorizedBy:    Party{ID: "x", EntityID: "e1"},
+		CounterSignedBy: &Party{ID: "y", EntityID: "e2"},
+	}
+	local := *utc
+	cs := *utc.CounterSignedBy
+	local.CounterSignedBy = &cs
+	// The same instant, expressed in another zone.
+	local.Act.Date = utc.Act.Date.In(gulf)
+
+	if digest(utc, salt) != digest(&local, salt) {
+		t.Fatal("the same instant in two timezones produced different digests")
 	}
 }
